@@ -1,0 +1,40 @@
+# systemd service definition for the Firewall Log Analyzer.
+# install_ubuntu.sh replaces __APP_DIR__ and __APP_USER__ and copies this file
+# to /etc/systemd/system/. Manage it with:
+#   sudo systemctl status firewall-analyzer
+#   sudo systemctl restart firewall-analyzer
+#   journalctl -u firewall-analyzer -f      (follow the app's log output)
+
+[Unit]
+Description=Firewall Log Analyzer and Alert System
+# Start once the network is up (needed for Telegram/email and the web server).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as a normal user, never as root.
+User=__APP_USER__
+Group=__APP_USER__
+# Extra group membership so the service can read /var/log/ufw.log.
+SupplementaryGroups=adm
+WorkingDirectory=__APP_DIR__
+ExecStart=__APP_DIR__/venv/bin/python run.py
+# Restart automatically if the app crashes.
+Restart=on-failure
+RestartSec=5
+# hardening: the service only needs to read logs and write its own folder
+#   NoNewPrivileges  the process can never gain more rights (e.g. via sudo)
+#   PrivateTmp       gets its own empty /tmp
+#   ProtectSystem    the whole file system is read-only for the service ...
+#   ProtectHome      ... including home folders ...
+#   ReadWritePaths   ... except the instance folder (database and uploads)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__APP_DIR__/instance
+
+[Install]
+# Start the service during normal boot.
+WantedBy=multi-user.target

@@ -1,0 +1,23 @@
+# Python packages the application needs. Install with:  pip install -r requirements.txt
+# Version ranges allow bug-fix updates but not major versions that could break the code.
+
+# Web framework: pages, forms, URL routing
+Flask>=3.0,<4
+# Database access from Flask (models, queries) on top of SQLAlchemy
+Flask-SQLAlchemy>=3.1,<4
+# Login sessions: remembers who is logged in, protects pages
+Flask-Login>=0.6.3,<1
+# CSRF protection for every form
+Flask-WTF>=1.2,<2
+# The database toolkit (talks to SQLite)
+SQLAlchemy>=2.0,<3
+# Reads settings and secrets from the .env file
+python-dotenv>=1.0
+# HTTP client used for the Telegram API and Ollama
+requests>=2.31
+# Creates the PDF report
+fpdf2>=2.7.8
+# Production web server that works on both Windows and Linux
+waitress>=3.0
+# Runs the automated tests
+pytest>=8.0
