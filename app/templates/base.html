@@ -70,6 +70,14 @@ on every admin page, so hiding the link is for convenience, not security.
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% for cat, msg in messages %}<div class="flash flash-{{ cat }}" role="status">{{ msg }}</div>{% endfor %}
     {% endwith %}
+    {# Warn while monitoring if UFW logging is throttled: brute-force on allowed services can be missed #}
+    {% if monitor_running and ufw_logging_rate_limited %}
+    <div class="flash flash-warning" role="status">
+      UFW logging is set to <code>{{ ufw_logging_level }}</code>, which rate-limits the logging of allowed
+      connections. A brute-force against an allowed service such as SSH may be under-logged and missed.
+      Run <code>sudo ufw logging full</code> on the firewall host to capture every connection.
+    </div>
+    {% endif %}
     {% block content %}{% endblock %}
   </main>
 </div>

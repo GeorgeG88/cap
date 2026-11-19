@@ -181,15 +181,21 @@ def _csv_safe(value):
 
 
 def alerts_csv(alerts) -> str:
-    """Alerts as CSV text, one row per alert."""
+    """Alerts as CSV text, one row per alert.
+
+    ``detected_at`` is when the alert was actually raised (the row's created_at),
+    which is the right value for measuring detection delay. ``first_seen`` is pulled
+    back to the start of the detection window and can predate the attack, so it is
+    not a reliable "attack start" marker.
+    """
     out = io.StringIO()
     w = csv.writer(out)
-    w.writerow(["id", "severity", "rule", "source_ip", "first_seen", "last_seen", "count",
-                "occurrences", "status", "summary"])
+    w.writerow(["id", "incident", "severity", "rule", "source_ip", "detected_at", "first_seen",
+                "last_seen", "count", "occurrences", "status", "summary"])
     for a in alerts:
-        w.writerow([_csv_safe(v) for v in [a.id, a.severity, a.rule_name, a.src_ip, a.first_seen,
-                                           a.last_seen, a.event_count, a.occurrences, a.status,
-                                           (a.details or {}).get("summary", "")]])
+        w.writerow([_csv_safe(v) for v in [a.id, a.incident_id, a.severity, a.rule_name, a.src_ip,
+                                           a.created_at, a.first_seen, a.last_seen, a.event_count,
+                                           a.occurrences, a.status, (a.details or {}).get("summary", "")]])
     return out.getvalue()
 
 

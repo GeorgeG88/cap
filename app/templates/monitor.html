@@ -20,6 +20,12 @@ Only admins see the start/stop form; analysts see the status only.
       <dt>Last activity</dt><dd>{{ status.last_activity|dt }}</dd>
       <dt>Log rotations</dt><dd>{{ status.rotations }}</dd>
       {% if run %}<dt>Run</dt><dd><a href="{{ url_for('analysis.run_detail', run_id=run.id) }}">#{{ run.id }}</a> &middot; {{ run.events_stored|num }} events &middot; {{ run.alerts_created|num }} alerts</dd>{% endif %}
+      <dt>SSH auth log</dt><dd>
+        {% if status.auth_running %}<span class="badge run-running"><span class="dot-live"></span> following</span>
+          <code>{{ status.auth_path }}</code> &middot; {{ status.auth_lines_read|num }} lines{% if status.auth_run_id %}
+          &middot; <a href="{{ url_for('analysis.run_detail', run_id=status.auth_run_id) }}">run #{{ status.auth_run_id }}</a>{% endif %}
+        {% elif status.auth_note %}<span class="muted">{{ status.auth_note }}</span>
+        {% else %}<span class="muted">not running</span>{% endif %}</dd>
     </dl>
     {% if current_user.is_admin %}
       {% if status.running %}

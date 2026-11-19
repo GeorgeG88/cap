@@ -53,6 +53,18 @@ credentials themselves are never shown in the page.
     <div class="btn-row"><button class="btn btn-primary" type="submit">Save</button></div>
   </form>
 
+  <form class="card stack" id="auth" method="post">{{ csrf() }}
+    <input type="hidden" name="section" value="auth">
+    <h2>SSH auth-log monitoring</h2>
+    <p class="muted small">Also follow sshd's auth log for failed logins, so a brute-force against the
+      allowed SSH service is caught even when UFW's connection logging is rate-limited. Tune the
+      threshold and window on the <a href="{{ url_for('admin.rules') }}">Rules page</a> (SSH authentication brute-force).
+      Takes effect when live monitoring is next started.</p>
+    <label class="check"><input type="checkbox" name="auth_monitor_enabled" value="1" {{ 'checked' if s.auth_monitor_enabled }}> Follow the auth log during live monitoring</label>
+    <label>Auth log path<input name="auth_log_path" value="{{ s.auth_log_path }}" maxlength="500"></label>
+    <div class="btn-row"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+
   <form class="card stack" id="ollama" method="post">{{ csrf() }}
     <input type="hidden" name="section" value="ollama">
     <h2>AI report summary (optional)</h2>

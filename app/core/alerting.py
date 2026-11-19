@@ -106,6 +106,17 @@ class AlertManager:
         alert.notified_at = now
         self._outbox.append((alert, escalated, channels))
 
+    def _incident_for(self, d: Detection) -> int | None:
+        """Reuse the incident of a recent alert from the same source (any rule),
+        so one attack that trips several rules becomes one incident. Returns None
+        to start a new incident (the caller then uses the new alert's own id)."""
+        window = timedelta(minutes=int(self.settings.get("incident_window_minutes", 5)))
+        prior = (Alert.query
+                 .filter(Alert.src_ip == d.src_ip, Alert.incident_id.isnot(None),
+                         Alert.last_seen >= d.first_seen - window)
+                 .order_by(Alert.last_seen.desc()).first())
+        return prior.incident_id if prior else None
+
     # -- main entry point --------------------------------------------------
     def apply(self, detections: Iterable[Detection]) -> None:
         """Create or update alerts for a batch of detections (see the steps at the top)."""
@@ -142,6 +153,7 @@ class AlertManager:
                 )
                 db.session.add(alert)
                 db.session.flush()    # assigns the alert its id
+                alert.incident_id = self._incident_for(d) or alert.id
                 self.alert_ids[d.key] = alert.id
                 self.created += 1
                 self._maybe_notify(alert, escalated=False)

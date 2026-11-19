@@ -157,6 +157,32 @@ def cmd_analyze(args):
               f"{d.details.get('summary', '')}")
 
 
+def cmd_analyze_auth(args):
+    """Command-line SSH brute-force check over an auth.log; nothing is stored.
+
+    Runs the same auth parser and detector as the live monitor and prints one
+    line per detection. Useful for checking a captured /var/log/auth.log, and
+    for showing the auth-log detection without the web interface.
+    """
+    from app.core.authparser import DEFAULT_AUTH_RULE, AuthBruteForceDetector, AuthLogParser
+
+    parser = AuthLogParser()
+    det = AuthBruteForceDetector(DEFAULT_AUTH_RULE["threshold"], DEFAULT_AUTH_RULE["window_seconds"],
+                                 DEFAULT_AUTH_RULE["severity"])
+    episodes = {}
+    with open(args.logfile, "r", encoding="utf-8", errors="replace") as fh:
+        for ev in parser.parse_lines(fh):
+            d = det.process(ev)
+            if d is not None:
+                episodes[d.key] = d
+    s = parser.stats
+    print(f"Lines: {s.total}  auth outcomes: {s.parsed}  failed: {s.failed}  accepted: {s.accepted}")
+    print(f"Detections: {len(episodes)}\n")
+    for d in sorted(episodes.values(), key=lambda x: x.first_seen):
+        print(f"[{d.severity.upper():8}] {d.rule_name:30} {d.src_ip:18} "
+              f"{d.first_seen:%Y-%m-%d %H:%M:%S} -> {d.last_seen:%H:%M:%S}  {d.details.get('summary', '')}")
+
+
 def main():
     """Read the command line and run the chosen command."""
     p = argparse.ArgumentParser(description="Firewall Log Analyzer management")
@@ -177,9 +203,13 @@ def main():
     s.add_argument("username")
     s.set_defaults(func=cmd_reset_password)
 
-    s = sub.add_parser("analyze", help="analyse a log file from the command line")
+    s = sub.add_parser("analyze", help="analyse a firewall (UFW) log file from the command line")
     s.add_argument("logfile")
     s.set_defaults(func=cmd_analyze)
+
+    s = sub.add_parser("analyze-auth", help="check an SSH auth.log for brute-force from the command line")
+    s.add_argument("logfile")
+    s.set_defaults(func=cmd_analyze_auth)
 
     args = p.parse_args()
     args.func(args)

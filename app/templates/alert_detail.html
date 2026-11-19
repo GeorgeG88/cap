@@ -23,6 +23,9 @@ All values are escaped automatically by Jinja, so log content can never become H
     <dl class="kv">
       <dt>Source IP</dt><dd><code>{{ alert.src_ip }}</code>
         {% if alert.src_ip != '*' %}<a class="small" href="{{ url_for('events.index', src=alert.src_ip) }}">all events &rarr;</a>{% endif %}</dd>
+      <dt>Detected at</dt><dd>{{ alert.created_at|dt }}</dd>
+      {% if alert.incident_id %}<dt>Incident</dt><dd>#{{ alert.incident_id }}
+        <a class="small" href="{{ url_for('alerts.index', incident=alert.incident_id) }}">all alerts in this incident &rarr;</a></dd>{% endif %}
       <dt>First seen</dt><dd>{{ alert.first_seen|dt }}</dd>
       <dt>Last seen</dt><dd>{{ alert.last_seen|dt }}</dd>
       <dt>Observed count</dt><dd>{{ alert.event_count|num }} (threshold {{ alert.threshold }} in {{ alert.window_seconds }}s)</dd>

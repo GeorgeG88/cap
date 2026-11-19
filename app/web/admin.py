@@ -157,6 +157,13 @@ def settings():
             set_setting("noise_ports", ",".join(ports))
             set_setting("drop_broadcast", bool(request.form.get("drop_broadcast")))
             set_setting("drop_multicast", bool(request.form.get("drop_multicast")))
+        elif section == "auth":
+            apath = request.form.get("auth_log_path", "").strip()
+            if not apath:
+                flash("Auth log path is required.", "danger")
+                return redirect(url_for("admin.settings"))
+            set_setting("auth_monitor_enabled", bool(request.form.get("auth_monitor_enabled")))
+            set_setting("auth_log_path", apath)
         elif section == "ollama":
             url = request.form.get("ollama_url", "").strip()
             if not url.startswith(("http://", "https://")):

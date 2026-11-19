@@ -168,6 +168,9 @@ class Alert(db.Model):
     threshold = db.Column(db.Integer)                               # rule settings at the time of the alert
     window_seconds = db.Column(db.Integer)
     occurrences = db.Column(db.Integer, default=1)   # merged detection episodes
+    # Alerts from the same source close together in time share an incident_id,
+    # so one attack (which trips several rules) can be viewed as one incident.
+    incident_id = db.Column(db.Integer, index=True)
     details = db.Column(JSONText)                                   # rule-specific evidence
     status = db.Column(db.String(16), nullable=False, default="new", index=True)
     status_changed_by = db.Column(db.String(64))
@@ -261,12 +264,15 @@ DEFAULT_SETTINGS = {
     "notify_min_severity": "high",
     "notify_cooldown_minutes": 15,
     "alert_merge_minutes": 10,
+    "incident_window_minutes": 5,
     "drop_broadcast": True,
     "drop_multicast": True,
     "noise_ports": "67,68,137,138,1900,5353,5355",
     "monitor_log_path": "/var/log/ufw.log",
     "monitor_from_start": False,
     "monitor_autostart": False,
+    "auth_monitor_enabled": True,
+    "auth_log_path": "/var/log/auth.log",
     "ollama_url": "http://localhost:11434",
     "ollama_model": "",
 }

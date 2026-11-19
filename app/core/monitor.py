@@ -21,10 +21,32 @@ import threading
 from datetime import datetime
 
 from ..extensions import db
-from ..models import AnalysisRun, audit
-from .pipeline import AnalysisPipeline
+from ..models import AnalysisRun, audit, get_setting
+from .pipeline import AnalysisPipeline, AuthPipeline
 
 log = logging.getLogger(__name__)
+
+# UFW logging levels that rate-limit the logging of allowed connections. At
+# these levels a brute-force against an allowed service (e.g. SSH) is
+# under-logged and can slip past the rate-based rules; only "full" logs every
+# packet. "off" means no logging at all.
+RATE_LIMITED_LOG_LEVELS = ("off", "low", "medium", "high")
+
+
+def ufw_logging_level(conf_path: str = "/etc/ufw/ufw.conf") -> str | None:
+    """Return the configured UFW logging level (off/low/medium/high/full), or
+    None if it cannot be read (for example when not running on the firewall
+    host, such as during development on Windows)."""
+    try:
+        with open(conf_path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("LOGLEVEL="):
+                    return line.split("=", 1)[1].strip().lower()
+    except OSError:
+        return None
+    return None
+
 
 # How long to wait before checking the file again when there is no new data.
 POLL_SECONDS = 1.0
@@ -43,7 +65,8 @@ class LiveMonitor:
         self.app = app
         self.notifier = notifier
         self._thread: threading.Thread | None = None
-        self._stop = threading.Event()       # set() tells the thread to finish
+        self._auth_thread: threading.Thread | None = None   # optional auth.log tail
+        self._stop = threading.Event()       # set() tells both threads to finish
         self._lock = threading.Lock()        # prevents two simultaneous starts
         # Status values shown on the Live monitor page:
         self.path: str | None = None
@@ -53,6 +76,11 @@ class LiveMonitor:
         self.last_activity: datetime | None = None
         self.error: str | None = None
         self.rotations = 0
+        # Auth-log (SSH brute-force) monitoring, when enabled and readable:
+        self.auth_path: str | None = None
+        self.auth_run_id: int | None = None
+        self.auth_lines_read = 0
+        self.auth_note: str | None = None    # why auth monitoring is or isn't running
 
     @property
     def running(self) -> bool:
@@ -61,7 +89,10 @@ class LiveMonitor:
     def status(self) -> dict:
         return {"running": self.running, "path": self.path, "run_id": self.run_id,
                 "started_at": self.started_at, "lines_read": self.lines_read,
-                "last_activity": self.last_activity, "error": self.error, "rotations": self.rotations}
+                "last_activity": self.last_activity, "error": self.error, "rotations": self.rotations,
+                "auth_running": self._auth_thread is not None and self._auth_thread.is_alive(),
+                "auth_path": self.auth_path, "auth_run_id": self.auth_run_id,
+                "auth_lines_read": self.auth_lines_read, "auth_note": self.auth_note}
 
     def start(self, path: str, from_start: bool = False, username: str | None = None) -> str | None:
         """Start monitoring. Returns an error message or None."""
@@ -93,13 +124,40 @@ class LiveMonitor:
             self._thread = threading.Thread(target=self._run, args=(run.id, path, offset),
                                             name="live-monitor", daemon=True)
             self._thread.start()
+
+            # Optionally also follow sshd's auth log for brute-force detection.
+            # This is independent of the firewall tail: if it cannot start, the
+            # firewall monitoring carries on and only a note is recorded.
+            self._auth_thread = None
+            self.auth_path = self.auth_run_id = None
+            self.auth_lines_read = 0
+            self.auth_note = None
+            if get_setting("auth_monitor_enabled"):
+                apath = get_setting("auth_log_path")
+                if not os.path.isfile(apath):
+                    self.auth_note = f"auth log not found: {apath}"
+                elif not os.access(apath, os.R_OK):
+                    self.auth_note = f"no permission to read {apath} (add the app user to the 'adm' group)"
+                else:
+                    arun = AnalysisRun(source="live-auth", filename=apath, status="running",
+                                       notify=True, created_by=username)
+                    db.session.add(arun)
+                    db.session.commit()
+                    self.auth_path, self.auth_run_id = apath, arun.id
+                    aoffset = 0 if from_start else os.path.getsize(apath)
+                    self._auth_thread = threading.Thread(target=self._run_auth,
+                                                         args=(arun.id, apath, aoffset),
+                                                         name="live-monitor-auth", daemon=True)
+                    self._auth_thread.start()
+                    self.auth_note = f"following {apath}"
             return None
 
     def stop(self, timeout: float = 10.0) -> None:
-        """Ask the thread to finish and wait (up to ``timeout`` seconds) for it."""
+        """Ask both threads to finish and wait (up to ``timeout`` seconds) for them."""
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout)
+        for t in (self._thread, self._auth_thread):
+            if t is not None:
+                t.join(timeout)
 
     # ------------------------------------------------------------------
     def _run(self, run_id: int, path: str, offset: int) -> None:
@@ -128,7 +186,27 @@ class LiveMonitor:
                 log.exception("could not finalize live run")
                 db.session.rollback()
 
-    def _tail(self, path: str, offset: int, pipeline: AnalysisPipeline) -> None:
+    def _run_auth(self, run_id: int, path: str, offset: int) -> None:
+        """Body of the auth-log tail thread. Isolated from the firewall tail:
+        any error here is recorded and ends only this thread."""
+        with self.app.app_context():
+            run = db.session.get(AnalysisRun, run_id)
+            pipeline = AuthPipeline(run, notifier=self.notifier)
+            status = "stopped"
+            try:
+                self._tail(path, offset, pipeline, auth=True)
+            except Exception as exc:
+                log.exception("auth-log monitor crashed")
+                self.auth_note = f"auth monitoring stopped: {exc.__class__.__name__}"
+                status = "failed"
+            try:
+                pipeline.finish(status)
+                db.session.commit()
+            except Exception:
+                log.exception("could not finalize auth run")
+                db.session.rollback()
+
+    def _tail(self, path: str, offset: int, pipeline, auth: bool = False) -> None:
         """Follow the file and feed complete new lines to the pipeline."""
         # Binary mode lets us split on newline bytes ourselves and handle
         # half-written lines and odd characters safely.
@@ -155,8 +233,11 @@ class LiveMonitor:
                         lines = [c.decode("utf-8", errors="replace") for c in complete]
                         pipeline.feed(lines)
                         pipeline.flush()          # write now, so alerts appear immediately
-                        self.lines_read += len(lines)
-                        self.last_activity = datetime.now()
+                        if auth:
+                            self.auth_lines_read += len(lines)
+                        else:
+                            self.lines_read += len(lines)
+                            self.last_activity = datetime.now()
                     continue   # there may be more data; read again without waiting
 
                 # no new data: check for rotation / truncation

@@ -27,6 +27,7 @@ from typing import Iterable
 from ..extensions import db
 from ..models import AllowlistEntry, AnalysisRun, Event, Rule, all_settings
 from .alerting import AlertManager
+from .authparser import DEFAULT_AUTH_RULE, AuthBruteForceDetector, AuthLogParser
 from .detection import DetectionEngine, default_rule_configs
 from .filters import EventFilter, FilterConfig, parse_networks
 from .parser import UFWParser
@@ -187,3 +188,63 @@ def analyze_file(app, run_id: int, path: str, notifier=None) -> None:
                 os.remove(path)  # events are stored in the database; drop the temp file
             except OSError:
                 pass
+
+
+def load_auth_rule() -> dict:
+    """The SSH auth brute-force rule settings from the database, or the defaults."""
+    rule = db.session.get(Rule, DEFAULT_AUTH_RULE["rule_id"])
+    return rule.to_config_dict() if rule else dict(DEFAULT_AUTH_RULE)
+
+
+class AuthPipeline:
+    """Live analysis of sshd's auth log. Produces SSH brute-force alerts only;
+    it does not write rows to the events table (auth events are not firewall
+    events). Exposes the same feed()/flush()/finish() interface as
+    AnalysisPipeline, so the live monitor can tail its file the same way.
+    """
+
+    def __init__(self, run: AnalysisRun, notifier=None, reference_time: datetime | None = None):
+        settings = all_settings()
+        self.run_id = run.id
+        self.parser = AuthLogParser(reference_time=reference_time)
+        cfg = load_auth_rule()
+        self.enabled = bool(cfg.get("enabled", True))
+        self.detector = AuthBruteForceDetector(int(cfg["threshold"]), int(cfg["window_seconds"]),
+                                               cfg.get("severity", "high"))
+        self.alerts = AlertManager(run.id, settings, notifier=notifier, notify=bool(run.notify))
+        self._detections: dict = {}
+        self.first_event = run.first_event
+        self.last_event = run.last_event
+
+    def feed(self, lines: Iterable[str]) -> None:
+        for ev in self.parser.parse_lines(lines):
+            if self.first_event is None or ev.timestamp < self.first_event:
+                self.first_event = ev.timestamp
+            if self.last_event is None or ev.timestamp > self.last_event:
+                self.last_event = ev.timestamp
+            if not self.enabled:
+                continue
+            d = self.detector.process(ev)
+            if d is not None:
+                self._detections[d.key] = d
+
+    def flush(self) -> None:
+        if self._detections:
+            self.alerts.apply(self._detections.values())
+            self._detections = {}
+        run = db.session.get(AnalysisRun, self.run_id)
+        s = self.parser.stats
+        run.lines_total = s.total
+        run.lines_parsed = s.parsed
+        run.events_stored = 0   # auth events are not stored as firewall events
+        run.alerts_created = self.alerts.created
+        run.first_event = self.first_event
+        run.last_event = self.last_event
+        self.alerts.commit_and_dispatch()
+
+    def finish(self, status: str = "done") -> None:
+        self.flush()
+        run = db.session.get(AnalysisRun, self.run_id)
+        run.status = status
+        run.finished_at = datetime.now()
+        db.session.commit()

@@ -44,6 +44,10 @@ def filtered_alerts():
     run = request.args.get("run", type=int)
     if run:
         q = q.filter(Alert.run_id == run)
+    incident = request.args.get("incident", type=int)
+    if incident:
+        # Show one incident's alerts regardless of their status.
+        q = Alert.query.filter(Alert.incident_id == incident)
     return q
 
 

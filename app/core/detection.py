@@ -298,6 +298,7 @@ class Episode:
     first_seen: datetime   # start of the window in which the threshold was reached
     last_seen: datetime    # last time the count was at or above the threshold
     items: set             # every distinct item seen during the episode
+    src_ip: str = ""       # source IP recorded on the alert (the group key may be richer)
     extra: dict = field(default_factory=dict)   # rule-specific evidence (targets, flags...)
 
 
@@ -317,14 +318,27 @@ class SlidingWindowRule:
     def __init__(self, config: RuleConfig):
         self.config = config
         self.window = timedelta(seconds=max(1, config.window_seconds))
-        self.counters: dict[str, WindowCounter] = {}   # one sliding window per source IP
-        self.episodes: dict[str, Episode] = {}         # current episode per source IP
+        # Keyed by "group" (the source IP by default; a rule can make it richer,
+        # e.g. (source, port) for brute force so each port is counted on its own).
+        self.counters: dict = {}   # one sliding window per group
+        self.episodes: dict = {}   # current episode per group
         self._episode_seq = 0
 
     # subclasses implement -------------------------------------------------
     def item_for(self, event: FirewallEvent, attempt: Optional[tuple]):
         """Return what this rule counts for the event, or None to ignore the event."""
         raise NotImplementedError
+
+    def group_for(self, event: FirewallEvent):
+        """Key under which counts and episodes are tracked. The default is the
+        source IP, so a rule fires on 'one source doing X'. A rule can override
+        this to count separately per (source, port) and so on."""
+        return event.src_ip
+
+    def src_for(self, event: FirewallEvent) -> str:
+        """The source IP string shown on the resulting alert (always the IP,
+        even when the group key above is a tuple)."""
+        return event.src_ip
 
     def update_extra(self, extra: dict, event: FirewallEvent, item) -> None:
         """Collect rule-specific evidence for the alert details."""
@@ -341,26 +355,27 @@ class SlidingWindowRule:
         if item is None:
             return None   # this event is not relevant to this rule
 
-        # Find (or create) the sliding window for this source and add the item.
-        src = event.src_ip
-        counter = self.counters.get(src)
+        # Find (or create) the sliding window for this group and add the item.
+        group = self.group_for(event)
+        src_ip = self.src_for(event)
+        counter = self.counters.get(group)
         if counter is None:
-            counter = self.counters[src] = WindowCounter(self.window)
+            counter = self.counters[group] = WindowCounter(self.window)
         counter.add(event.timestamp, item, event)
 
-        # Case 1: an episode for this source is still active (the source was
-        # above the threshold less than one window ago). Extend it.
-        ep = self.episodes.get(src)
+        # Case 1: an episode for this group is still active (it was above the
+        # threshold less than one window ago). Extend it.
+        ep = self.episodes.get(group)
         active = ep is not None and event.timestamp - ep.last_seen <= self.window
         if active:
             if len(ep.items) < MAX_EPISODE_ITEMS:
                 ep.items.add(item)
             self.update_extra(ep.extra, event, item)
-            # last_seen only moves forward while the source is still above
+            # last_seen only moves forward while the group is still above
             # the threshold, so a slow trickle afterwards lets the episode end.
             if counter.distinct >= self.config.threshold:
                 ep.last_seen = max(ep.last_seen, event.timestamp)
-            return self._detection(src, ep)
+            return self._detection(ep)
 
         # Case 2: no active episode, but the threshold has just been reached.
         # Start a new episode that includes everything already in the window,
@@ -368,20 +383,20 @@ class SlidingWindowRule:
         if counter.distinct >= self.config.threshold:
             self._episode_seq += 1
             ep = Episode(number=self._episode_seq, first_seen=counter.oldest or event.timestamp,
-                         last_seen=event.timestamp, items=set(counter.counts))
+                         last_seen=event.timestamp, items=set(counter.counts), src_ip=src_ip)
             for _, win_item, win_event in counter.items:  # evidence from the whole window
                 self.update_extra(ep.extra, win_event, win_item)
-            self.episodes[src] = ep
-            return self._detection(src, ep)
+            self.episodes[group] = ep
+            return self._detection(ep)
 
         # Case 3: below the threshold and no active episode. Nothing to report.
         return None
 
-    def _detection(self, src: str, ep: Episode) -> Detection:
+    def _detection(self, ep: Episode) -> Detection:
         """Package the current state of an episode as a Detection."""
         cfg = self.config
         return Detection(
-            rule_id=cfg.rule_id, rule_name=cfg.name, severity=cfg.severity, src_ip=src,
+            rule_id=cfg.rule_id, rule_name=cfg.name, severity=cfg.severity, src_ip=ep.src_ip,
             first_seen=ep.first_seen, last_seen=ep.last_seen, count=len(ep.items),
             threshold=cfg.threshold, window_seconds=cfg.window_seconds, episode=ep.number,
             details=self.build_details(ep),
@@ -465,6 +480,13 @@ class BruteForceRule(SlidingWindowRule):
         # The list of ports can be changed on the Rules page.
         ports = config.params.get("auth_ports") or sorted(AUTH_SERVICES)
         self.auth_ports = {int(p) for p in ports}
+
+    def group_for(self, event):
+        # Count per (source, destination port) so the rule fires only when ONE
+        # service is hammered, e.g. 10 connections to port 22. Without this, a
+        # broad port scan that touches several auth ports a few times each would
+        # add up to the threshold and raise a false brute-force alert.
+        return (event.src_ip, event.dst_port)
 
     def item_for(self, event, attempt):
         if attempt is None or event.proto != "TCP" or event.dst_port not in self.auth_ports:
