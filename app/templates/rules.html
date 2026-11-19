@@ -1,0 +1,67 @@
+{#
+One card per detection rule, plus the allowlist.
+For analysts the inputs are disabled and no Save buttons are shown (read-only view).
+The traffic spike rule always uses 60-second buckets, so its window field is fixed
+and a hidden input sends the value 60.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import sev, csrf %}
+{% block title %}Rules &amp; allowlist{% endblock %}
+{% block subheading %}<p class="muted">Each rule counts distinct items per source IP inside a sliding time window and raises an alert when the count reaches the threshold.
+  {% if not current_user.is_admin %}Read-only: only administrators can change rules.{% endif %}</p>{% endblock %}
+{% block content %}
+{% if monitor_running %}<div class="flash flash-info">Live monitoring is running. Rule changes apply to new uploads immediately and to live monitoring after it is restarted.</div>{% endif %}
+<section class="rules">
+{% for r in rules %}
+  <form class="card rule {{ '' if r.enabled else 'rule-off' }}" id="rule-{{ r.rule_id }}" method="post" action="{{ url_for('admin.rule_update', rule_id=r.rule_id) }}">
+    {{ csrf() }}
+    <div class="card-head">
+      <h2>{{ r.name }} <code class="muted small">{{ r.rule_id }}</code></h2>
+      {{ sev(r.severity) }}
+    </div>
+    <p class="muted small">{{ r.description }}</p>
+    {# ro = read-only. The server also refuses rule changes from non-admins, so this is only for display. #}
+    {% set ro = not current_user.is_admin %}
+    <div class="rule-fields">
+      <label class="check"><input type="checkbox" name="enabled" value="1" {{ 'checked' if r.enabled }} {{ 'disabled' if ro }}> Enabled</label>
+      <label>{{ 'Min. attempts / minute' if r.rule_id == 'traffic_spike' else 'Threshold' }}<input type="number" name="threshold" min="1" max="100000" value="{{ r.threshold }}" {{ 'disabled' if ro }}></label>
+      <label>Window (s)<input type="number" name="window_seconds" min="1" max="86400" value="{{ r.window_seconds }}" {{ 'disabled' if ro or r.rule_id == 'traffic_spike' }}></label>
+      {% if r.rule_id == 'traffic_spike' %}<input type="hidden" name="window_seconds" value="60">{% endif %}
+      <label>Severity<select name="severity" {{ 'disabled' if ro }}>
+        {% for s in severities %}<option value="{{ s }}" {{ 'selected' if r.severity == s }}>{{ s }}</option>{% endfor %}</select></label>
+      {% if r.rule_id == 'brute_force' %}
+      <label class="wide">Authentication ports<input name="auth_ports" value="{{ (r.params.get('auth_ports') or [])|join(', ') }}" {{ 'disabled' if ro }}></label>
+      {% elif r.rule_id == 'traffic_spike' %}
+      <label>Baseline (min)<input type="number" name="baseline_minutes" min="3" max="120" value="{{ r.params.get('baseline_minutes', 10) }}" {{ 'disabled' if ro }}></label>
+      <label>Multiplier<input type="number" step="0.5" name="multiplier" min="1" max="100" value="{{ r.params.get('multiplier', 5.0) }}" {{ 'disabled' if ro }}></label>
+      {% endif %}
+    </div>
+    <div class="rule-foot">
+      <span class="muted small">{% if r.updated_by %}Last changed by {{ r.updated_by }} &middot; {{ r.updated_at|dt }}{% endif %}</span>
+      {% if not ro %}<button class="btn btn-sm" type="submit">Save</button>{% endif %}
+    </div>
+  </form>
+{% endfor %}
+</section>
+
+<section class="card" id="allowlist">
+  <div class="card-head"><h2>Allowlist</h2></div>
+  <p class="muted small">Trusted sources (your admin machine, the gateway, monitoring servers). Their events are still stored and visible, but never raise alerts.</p>
+  {% if allowlist %}
+  <table class="table compact">
+    <thead><tr><th>Address / network</th><th>Note</th><th>Added</th><th></th></tr></thead>
+    <tbody>{% for e in allowlist %}
+      <tr><td><code>{{ e.cidr }}</code></td><td>{{ e.note or '' }}</td><td class="muted small">{{ e.created_by }} &middot; {{ e.created_at|dt('%Y-%m-%d') }}</td>
+        <td class="right">{% if current_user.is_admin %}<form method="post" action="{{ url_for('admin.allowlist_delete', entry_id=e.id) }}" class="inline">{{ csrf() }}<button class="btn btn-ghost btn-sm">Remove</button></form>{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">The allowlist is empty.</p>{% endif %}
+  {% if current_user.is_admin %}
+  <form method="post" action="{{ url_for('admin.allowlist_add') }}" class="inline-form">{{ csrf() }}
+    <label>IP or CIDR<input name="cidr" required maxlength="64" placeholder="192.168.56.1 or 10.0.0.0/8"></label>
+    <label class="grow">Note<input name="note" maxlength="255" placeholder="e.g. admin workstation"></label>
+    <button class="btn btn-sm" type="submit">Add</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

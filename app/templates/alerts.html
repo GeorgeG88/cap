@@ -1,0 +1,67 @@
+{#
+Alert queue: filter form at the top, then a table of alerts with checkboxes
+for bulk acknowledge/resolve, then page links.
+The filter form uses GET, so the filters appear in the URL and can be bookmarked.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import sev, status_badge, pager, csrf %}
+{% block title %}Alerts{% endblock %}
+{% block actions %}
+<a class="btn btn-sm" href="{{ url_for('reports.alerts_export', run=args.get('run', '')) }}">Export CSV</a>
+{% endblock %}
+{% block content %}
+<form class="filters card" method="get">
+  <label>Status
+    <select name="status">
+      {% set st = args.get('status', 'open') %}
+      <option value="open" {{ 'selected' if st == 'open' }}>Open (new + acknowledged)</option>
+      {% for s in statuses %}<option value="{{ s }}" {{ 'selected' if st == s }}>{{ s|capitalize }}</option>{% endfor %}
+      <option value="all" {{ 'selected' if st == 'all' }}>All</option>
+    </select></label>
+  <label>Severity
+    <select name="severity"><option value="">Any</option>
+      {% for s in severities %}<option value="{{ s }}" {{ 'selected' if args.get('severity') == s }}>{{ s|capitalize }}</option>{% endfor %}
+    </select></label>
+  <label>Rule
+    <select name="rule"><option value="">Any</option>
+      {% for r in rules %}<option value="{{ r.rule_id }}" {{ 'selected' if args.get('rule') == r.rule_id }}>{{ r.name }}</option>{% endfor %}
+    </select></label>
+  <label>Source IP<input name="src" value="{{ args.get('src', '') }}" placeholder="e.g. 192.168.56." maxlength="45"></label>
+  {% if args.get('run') %}<input type="hidden" name="run" value="{{ args.get('run') }}">{% endif %}
+  <div class="filter-actions"><button class="btn btn-sm" type="submit">Filter</button>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('alerts.index') }}">Reset</a></div>
+</form>
+
+<form method="post" action="{{ url_for('alerts.bulk') }}" class="card table-card">
+  {{ csrf() }}
+  <div class="table-toolbar">
+    <span class="muted small">With selected:</span>
+    <button class="btn btn-sm" name="status" value="acknowledged">Acknowledge</button>
+    <button class="btn btn-sm" name="status" value="resolved">Resolve</button>
+  </div>
+  {% if pagination.items %}
+  <table class="table">
+    <thead><tr><th class="w-check"><span class="sr-only">Select</span></th><th>Severity</th><th>Alert</th><th>Source</th>
+      <th>First seen</th><th>Last seen</th><th class="num">Count</th><th>Status</th></tr></thead>
+    <tbody>
+    {% for a in pagination.items %}
+      <tr>
+        <td><input type="checkbox" name="ids" value="{{ a.id }}" aria-label="Select alert {{ a.id }}"></td>
+        <td>{{ sev(a.severity) }}</td>
+        <td><a href="{{ url_for('alerts.detail', alert_id=a.id) }}">#{{ a.id }} {{ a.rule_name }}</a>
+          <div class="muted small">{{ (a.details or {}).get('summary', '') }}</div></td>
+        <td><code>{{ a.src_ip }}</code></td>
+        <td class="nowrap">{{ a.first_seen|dt }}</td>
+        <td class="nowrap">{{ a.last_seen|dt }}</td>
+        <td class="num">{{ a.event_count|num }}{% if a.occurrences > 1 %} <span class="muted small">&times;{{ a.occurrences }}</span>{% endif %}</td>
+        <td>{{ status_badge(a.status) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-row">No alerts match these filters.</p>
+  {% endif %}
+</form>
+{{ pager(pagination, 'alerts.index', args) }}
+{% endblock %}

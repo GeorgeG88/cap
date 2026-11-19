@@ -1,0 +1,33 @@
+{#
+Reusable pieces of HTML ("macros"), imported by other templates.
+  sev / status_badge / action_badge  coloured labels for severity, alert status and firewall action
+  pager                              "Previous / Next" links for long lists
+  csrf                               the hidden CSRF token every POST form must include;
+                                     the server rejects a form without a valid token, which stops
+                                     other websites from submitting forms on a logged-in user's behalf
+-#}
+{% macro sev(value) -%}
+<span class="badge {{ value|sevclass }}">{{ value }}</span>
+{%- endmacro %}
+
+{% macro status_badge(value) -%}
+<span class="badge st-{{ value }}">{{ value }}</span>
+{%- endmacro %}
+
+{% macro action_badge(value) -%}
+<span class="badge act-{{ value|lower }}">{{ value }}</span>
+{%- endmacro %}
+
+{% macro pager(pagination, endpoint, args) -%}
+{% if pagination.pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+  {% if pagination.has_prev %}<a href="{{ url_for(endpoint, page=pagination.prev_num, **args) }}">&larr; Previous</a>{% else %}<span class="disabled">&larr; Previous</span>{% endif %}
+  <span class="muted">Page {{ pagination.page }} of {{ pagination.pages }} &middot; {{ pagination.total|num }} total</span>
+  {% if pagination.has_next %}<a href="{{ url_for(endpoint, page=pagination.next_num, **args) }}">Next &rarr;</a>{% else %}<span class="disabled">Next &rarr;</span>{% endif %}
+</nav>
+{% endif %}
+{%- endmacro %}
+
+{% macro csrf() -%}
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}

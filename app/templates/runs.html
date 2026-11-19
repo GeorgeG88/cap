@@ -1,0 +1,31 @@
+{#
+List of all analysis runs (uploads and live sessions) with their main counters.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import pager %}
+{% block title %}Analysis runs{% endblock %}
+{% block actions %}<a class="btn btn-primary btn-sm" href="{{ url_for('analysis.upload') }}">Upload log</a>{% endblock %}
+{% block content %}
+<section class="card table-card">
+  {% if pagination.items %}
+  <table class="table">
+    <thead><tr><th>Run</th><th>Source</th><th>Status</th><th>Started</th><th class="num">Lines</th><th class="num">Events</th><th class="num">Alerts</th><th>By</th></tr></thead>
+    <tbody>
+    {% for r in pagination.items %}
+      <tr>
+        <td><a href="{{ url_for('analysis.run_detail', run_id=r.id) }}">#{{ r.id }}</a></td>
+        <td>{{ r.source }} <span class="muted small">{{ r.filename or '' }}</span></td>
+        <td><span class="badge run-{{ r.status }}">{{ r.status }}</span></td>
+        <td class="nowrap">{{ r.started_at|dt }}</td>
+        <td class="num">{{ r.lines_total|num }}</td>
+        <td class="num">{{ r.events_stored|num }}</td>
+        <td class="num">{{ r.alerts_created|num }}</td>
+        <td class="muted">{{ r.created_by or '' }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="empty-row">No analyses yet. Upload a log file or start the live monitor.</p>{% endif %}
+</section>
+{{ pager(pagination, 'analysis.runs', {}) }}
+{% endblock %}

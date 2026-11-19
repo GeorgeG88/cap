@@ -1,0 +1,21 @@
+{#
+Audit log (admin only). Failed logins are highlighted.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import pager %}
+{% block title %}Audit log{% endblock %}
+{% block subheading %}<p class="muted">Sign-ins, configuration changes and alert triage actions.</p>{% endblock %}
+{% block content %}
+<section class="card table-card">
+  {% if pagination.items %}
+  <table class="table compact">
+    <thead><tr><th>Time</th><th>User</th><th>IP</th><th>Action</th><th>Detail</th></tr></thead>
+    <tbody>{% for a in pagination.items %}
+      <tr class="{{ 'row-warn' if a.action == 'login_failed' }}"><td class="nowrap">{{ a.timestamp|dt }}</td><td>{{ a.username or '-' }}</td>
+        <td><code>{{ a.ip or '' }}</code></td><td><code>{{ a.action }}</code></td><td class="small wrap">{{ a.detail }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-row">No audit entries yet.</p>{% endif %}
+</section>
+{{ pager(pagination, 'admin.audit_log', {}) }}
+{% endblock %}

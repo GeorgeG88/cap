@@ -1,0 +1,30 @@
+{#
+Upload form. enctype="multipart/form-data" is required for file uploads.
+Notifications are off by default for uploads, because they usually contain old activity.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Upload log{% endblock %}
+{% block subheading %}<p class="muted">Analyse a UFW log file, for example <code>/var/log/ufw.log</code> copied from the firewall host.</p>{% endblock %}
+{% block content %}
+<section class="grid-2">
+  <form class="card stack" method="post" enctype="multipart/form-data">
+    {{ csrf() }}
+    <h2>New analysis</h2>
+    <label>Log file (max {{ max_mb }} MB)<input type="file" name="logfile" required></label>
+    <label class="check"><input type="checkbox" name="notify" value="1">
+      Send Telegram/email notifications for alerts found in this file</label>
+    <p class="muted small">Leave notifications off for historical files; they are meant for live activity.</p>
+    <div><button class="btn btn-primary" type="submit">Upload and analyse</button></div>
+  </form>
+  <div class="card">
+    <h2>Supported format</h2>
+    <p>UFW kernel log lines, with classic syslog or ISO 8601 timestamps:</p>
+    <pre class="sample">Oct 19 14:02:11 host kernel: [UFW BLOCK] IN=enp0s8 OUT= ... SRC=... DST=... PROTO=TCP SPT=... DPT=... SYN URGP=0
+2026-10-19T14:02:11.123456+03:00 host kernel: [UFW ALLOW] IN=enp0s8 ...</pre>
+    <p class="muted small">Lines that are not firewall entries are counted and skipped. Malformed firewall lines are counted and reported on the run page; they never stop the analysis.</p>
+    <h3>Getting the log</h3>
+    <p class="small">On the Ubuntu firewall host: <code>sudo cp /var/log/ufw.log ~/ufw.log &amp;&amp; sudo chown $USER ~/ufw.log</code>, then copy it to this machine (for example with a VirtualBox shared folder or <code>scp</code>).</p>
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,53 @@
+{#
+Live monitor status and controls. While running, the page reloads every 5 seconds.
+Only admins see the start/stop form; analysts see the status only.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import sev, status_badge, csrf %}
+{% block head %}{% if status.running %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block title %}Live monitor{% endblock %}
+{% block subheading %}<p class="muted">Follows the UFW log file in real time and raises alerts (with notifications) as attacks happen.</p>{% endblock %}
+{% block content %}
+<section class="grid-2">
+  <div class="card">
+    <div class="card-head"><h2>Status</h2>
+      {% if status.running %}<span class="badge run-running"><span class="dot-live"></span> running</span>{% else %}<span class="badge run-stopped">stopped</span>{% endif %}</div>
+    {% if status.error %}<div class="flash flash-danger">{{ status.error }}</div>{% endif %}
+    <dl class="kv">
+      <dt>Log file</dt><dd><code>{{ status.path or path }}</code></dd>
+      <dt>Started</dt><dd>{{ status.started_at|dt }}</dd>
+      <dt>Lines read</dt><dd>{{ status.lines_read|num }}</dd>
+      <dt>Last activity</dt><dd>{{ status.last_activity|dt }}</dd>
+      <dt>Log rotations</dt><dd>{{ status.rotations }}</dd>
+      {% if run %}<dt>Run</dt><dd><a href="{{ url_for('analysis.run_detail', run_id=run.id) }}">#{{ run.id }}</a> &middot; {{ run.events_stored|num }} events &middot; {{ run.alerts_created|num }} alerts</dd>{% endif %}
+    </dl>
+    {% if current_user.is_admin %}
+      {% if status.running %}
+      <form method="post">{{ csrf() }}<button class="btn btn-danger" name="action" value="stop">Stop monitoring</button></form>
+      {% else %}
+      <form method="post" class="stack">{{ csrf() }}
+        <label>Log file path<input name="path" value="{{ path }}" required maxlength="500"></label>
+        <label class="check"><input type="checkbox" name="from_start" value="1" {{ 'checked' if from_start }}> Read the existing file from the beginning first</label>
+        <label class="check"><input type="checkbox" name="autostart" value="1" {{ 'checked' if autostart }}> Start automatically when the application starts</label>
+        <div><button class="btn btn-primary" name="action" value="start">Start monitoring</button></div>
+      </form>
+      {% endif %}
+    {% else %}<p class="muted small">Only administrators can start or stop monitoring.</p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Recent live alerts</h2>
+    {% if recent %}
+    <ul class="plain">{% for a in recent %}
+      <li>{{ sev(a.severity) }} <a href="{{ url_for('alerts.detail', alert_id=a.id) }}">#{{ a.id }} {{ a.rule_name }}</a>
+        <code>{{ a.src_ip }}</code> <span class="muted small">{{ a.last_seen|dt('%H:%M:%S') }}</span> {{ status_badge(a.status) }}</li>
+    {% endfor %}</ul>
+    {% else %}<p class="muted">No alerts from the current live session.</p>{% endif %}
+    <h3>Requirements on the Ubuntu host</h3>
+    <ul class="small">
+      <li>Logging without rate limits: <code>sudo ufw logging high</code></li>
+      <li>Read access for the app user: <code>sudo usermod -aG adm $USER</code> (log out and back in)</li>
+      <li>Rule changes apply when monitoring is restarted.</li>
+    </ul>
+  </div>
+</section>
+{% endblock %}

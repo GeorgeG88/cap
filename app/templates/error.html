@@ -1,0 +1,21 @@
+{#
+Shown for 403 (not allowed), 404 (not found), 413 (upload too large) and 500 (server error).
+Logged-in users see it inside the normal layout; others get a minimal page.
+-#}
+{% extends "base.html" %}
+{% set titles = {403: "Access denied", 404: "Not found", 413: "File too large", 500: "Something went wrong"} %}
+{% block title %}{{ titles.get(code, "Error") }}{% endblock %}
+{% block content %}
+<section class="card empty">
+  <p class="big-code">{{ code }}</p>
+  <p>{% if code == 403 %}This page is only available to administrators.
+     {% elif code == 404 %}The page or record you requested does not exist.
+     {% elif code == 413 %}The uploaded file is larger than the allowed limit.
+     {% else %}An unexpected error occurred. Details were written to the server log.{% endif %}</p>
+  <a class="btn" href="{{ url_for('dashboard.index') }}">Back to dashboard</a>
+</section>
+{% endblock %}
+{% block public %}
+<div class="auth-wrap"><div class="auth-card"><p class="big-code">{{ code }}</p>
+<a class="btn" href="{{ url_for('auth.login') }}">Sign in</a></div></div>
+{% endblock %}

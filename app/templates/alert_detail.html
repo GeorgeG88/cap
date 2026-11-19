@@ -1,0 +1,91 @@
+{#
+One alert in detail.
+Left card: what the rule found (the evidence collected by the detection rule).
+Right card: triage buttons, notes, notification results and other alerts from the same source.
+Bottom: the stored events from this source around the time of the alert.
+All values are escaped automatically by Jinja, so log content can never become HTML.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import sev, status_badge, action_badge, csrf %}
+{% block title %}Alert #{{ alert.id }}{% endblock %}
+{% block heading %}Alert #{{ alert.id }}: {{ alert.rule_name }}{% endblock %}
+{% block subheading %}<p class="muted">{{ sev(alert.severity) }} {{ status_badge(alert.status) }}
+  from <code>{{ alert.src_ip }}</code>{% if alert.run_id %} &middot; <a href="{{ url_for('analysis.run_detail', run_id=alert.run_id) }}">run #{{ alert.run_id }}</a>{% endif %}</p>{% endblock %}
+{% block actions %}<a class="btn btn-sm btn-ghost" href="{{ url_for('alerts.index') }}">&larr; All alerts</a>{% endblock %}
+{% block content %}
+{# d holds the rule-specific evidence. Each rule fills in different keys,
+   so every row below is only shown if its key is present. #}
+{% set d = alert.details or {} %}
+<section class="grid-2">
+  <div class="card">
+    <h2>What happened</h2>
+    <p class="lead">{{ d.get('summary', '') }}</p>
+    <dl class="kv">
+      <dt>Source IP</dt><dd><code>{{ alert.src_ip }}</code>
+        {% if alert.src_ip != '*' %}<a class="small" href="{{ url_for('events.index', src=alert.src_ip) }}">all events &rarr;</a>{% endif %}</dd>
+      <dt>First seen</dt><dd>{{ alert.first_seen|dt }}</dd>
+      <dt>Last seen</dt><dd>{{ alert.last_seen|dt }}</dd>
+      <dt>Observed count</dt><dd>{{ alert.event_count|num }} (threshold {{ alert.threshold }} in {{ alert.window_seconds }}s)</dd>
+      <dt>Episodes merged</dt><dd>{{ alert.occurrences }}</dd>
+      {% if d.get('scan_type') %}<dt>Scan type</dt><dd>{{ d.scan_type }}</dd>{% endif %}
+      {% if d.get('services') %}<dt>Services</dt><dd>{% for s, n in d.services.items() %}{{ s }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+      {% if d.get('patterns') %}<dt>Flag patterns</dt><dd>{% for s, n in d.patterns.items() %}{{ s }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+      {% if d.get('actions') %}<dt>Firewall actions</dt><dd>{% for s, n in d.actions.items() %}{{ s }}: {{ n }}{% if not loop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+      {% if d.get('targets') %}<dt>Targets</dt><dd>{% for t in d.targets %}<code>{{ t }}</code> {% endfor %}</dd>{% endif %}
+      {% if d.get('rate_per_minute') %}<dt>Rate</dt><dd>{{ d.rate_per_minute }} attempts/min</dd>{% endif %}
+      {% if d.get('baseline_per_minute') is not none %}<dt>Baseline</dt><dd>{{ d.baseline_per_minute }} attempts/min</dd>{% endif %}
+    </dl>
+    {% if d.get('ports_sample') %}<h3>Ports probed (sample)</h3>
+      <p class="chips">{% for p in d.ports_sample %}<span class="chip">{{ p }}</span>{% endfor %}</p>{% endif %}
+    {% if d.get('top_ports') %}<h3>Top destination ports</h3>
+      <p class="chips">{% for p, n in d.top_ports %}<span class="chip">{{ p if p is not none else 'n/a' }} &times;{{ n }}</span>{% endfor %}</p>{% endif %}
+    {% if d.get('top_sources') %}<h3>Top contributing sources</h3>
+      <p class="chips">{% for s, n in d.top_sources %}<a class="chip" href="{{ url_for('events.index', src=s) }}">{{ s }} &times;{{ n }}</a>{% endfor %}</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Triage</h2>
+    <form method="post" action="{{ url_for('alerts.set_status', alert_id=alert.id) }}" class="stack">
+      {{ csrf() }}
+      <label>Note (optional)<textarea name="note" rows="3" maxlength="1000" placeholder="e.g. Confirmed lab test from Kali VM"></textarea></label>
+      {# Each button submits the same form with a different "status" value; only valid next steps are shown #}
+      <div class="btn-row">
+        {% if alert.status != 'acknowledged' %}<button class="btn" name="status" value="acknowledged">Acknowledge</button>{% endif %}
+        {% if alert.status != 'resolved' %}<button class="btn btn-primary" name="status" value="resolved">Resolve</button>{% endif %}
+        {% if alert.status != 'new' %}<button class="btn btn-ghost" name="status" value="new">Reopen</button>{% endif %}
+      </div>
+    </form>
+    {% if alert.status_changed_by %}<p class="muted small">Last changed by {{ alert.status_changed_by }} at {{ alert.status_changed_at|dt }}</p>{% endif %}
+    {% if alert.notes %}<h3>Notes</h3><pre class="notes">{{ alert.notes }}</pre>{% endif %}
+
+    <h3>Notifications</h3>
+    {% if notifications %}
+    <ul class="plain">{% for n in notifications %}
+      <li><span class="badge {{ 'st-resolved' if n.status == 'sent' else 'sev-critical' }}">{{ n.status }}</span>
+        {{ n.channel }} &middot; {{ n.created_at|dt }}{% if n.attempts > 1 %} &middot; {{ n.attempts }} attempts{% endif %}
+        {% if n.error %}<div class="muted small">{{ n.error }}</div>{% endif %}</li>
+    {% endfor %}</ul>
+    {% else %}<p class="muted small">No notifications were sent for this alert (disabled, below the minimum severity, in cooldown, or a historical upload).</p>{% endif %}
+
+    {% if others %}<h3>Other alerts from this source</h3>
+    <ul class="plain">{% for o in others %}
+      <li>{{ sev(o.severity) }} <a href="{{ url_for('alerts.detail', alert_id=o.id) }}">#{{ o.id }} {{ o.rule_name }}</a> <span class="muted small">{{ o.last_seen|dt }}</span></li>
+    {% endfor %}</ul>{% endif %}
+  </div>
+</section>
+
+<section class="card table-card">
+  <div class="card-head"><h2>Related events</h2><span class="muted small">{{ related_count|num }} events in the alert window{% if related_count > events|length %}, first {{ events|length }} shown{% endif %}</span></div>
+  {% if events %}
+  <table class="table compact mono">
+    <thead><tr><th>Time</th><th>Action</th><th>Source</th><th>Destination</th><th>Proto</th><th>Flags</th></tr></thead>
+    <tbody>{% for e in events %}
+      <tr><td class="nowrap">{{ e.timestamp|dt }}</td><td>{{ action_badge(e.action) }}</td>
+        <td>{{ e.src_ip }}{% if e.src_port is not none %}:{{ e.src_port }}{% endif %}</td>
+        <td>{{ e.dst_ip }}{% if e.dst_port is not none %}:{{ e.dst_port }}{% endif %}</td>
+        <td>{{ e.proto }}</td><td>{{ e.flags or '' }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-row">No stored events in this window.</p>{% endif %}
+</section>
+{% endblock %}

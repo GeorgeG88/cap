@@ -1,0 +1,94 @@
+{#
+Dashboard. The KPI tiles and recent alerts are filled in by the server.
+The four charts are drawn in the browser by static/js/dashboard.js, which reads
+the data URL from data-stats-url on the #dash element. No JavaScript is written
+inline in this page, because the Content-Security-Policy forbids inline scripts.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import sev, status_badge %}
+{% block title %}Dashboard{% endblock %}
+{% block subheading %}<p class="muted">Showing {{ stats.scope }}</p>{% endblock %}
+{% block actions %}
+<form class="inline-filters" method="get">
+  <select name="range" aria-label="Time range">
+    {% for r in ranges %}<option value="{{ r }}" {{ 'selected' if scope.range_key == r }}>{{ 'All time' if r == 'all' else 'Last ' ~ r }}</option>{% endfor %}
+  </select>
+  <select name="run" aria-label="Analysis run">
+    <option value="">All runs</option>
+    {% for r in runs %}<option value="{{ r.id }}" {{ 'selected' if scope.run_id == r.id }}>#{{ r.id }} {{ r.source }} &middot; {{ (r.filename or '')[:28] }}</option>{% endfor %}
+  </select>
+  <button class="btn btn-sm" type="submit">Apply</button>
+</form>
+{% endblock %}
+{% block content %}
+{% if monitor.running %}
+<div class="banner-live"><span class="dot-live"></span> Live monitoring <code>{{ monitor.path }}</code> &middot; {{ monitor.lines_read|num }} lines read &middot; dashboard refreshes every 15 seconds</div>
+{% endif %}
+
+<section class="kpis">
+  <div class="kpi"><span>Events</span><strong>{{ stats.events.total|num }}</strong><small>{{ stats.events.unique_sources|num }} unique sources</small></div>
+  <div class="kpi"><span>Allowed</span><strong class="ok">{{ stats.events.allowed|num }}</strong><small>passed the firewall</small></div>
+  <div class="kpi"><span>Denied</span><strong class="bad">{{ stats.events.denied|num }}</strong><small>{{ stats.events.deny_ratio }}% of events</small></div>
+  <div class="kpi"><span>Open alerts</span><strong class="{{ 'bad' if stats.alerts.open else '' }}">{{ stats.alerts.open|num }}</strong><small>{{ stats.alerts.total|num }} total</small></div>
+  <div class="kpi kpi-sev">
+    <span>By severity</span>
+    <div class="sev-row">
+      {% for s, n in stats.alerts.by_severity.items() %}<div><b class="{{ s|sevclass }}-text">{{ n }}</b><small>{{ s }}</small></div>{% endfor %}
+    </div>
+  </div>
+</section>
+
+{% if stats.events.total == 0 %}
+<section class="card empty">
+  <h2>No data yet</h2>
+  <p>Upload a UFW log file or start live monitoring to populate the dashboard.</p>
+  <a class="btn btn-primary" href="{{ url_for('analysis.upload') }}">Upload a log file</a>
+</section>
+{% else %}
+{# dashboard.js reads these two data attributes: where to fetch the statistics,
+   and whether to refresh them every 15 s (only while live monitoring runs) #}
+<div id="dash" data-stats-url="{{ url_for('dashboard.api_stats', range=scope.range_key, run=scope.run_id or '') }}"
+     data-live="{{ '1' if monitor.running else '0' }}">
+  <section class="grid-2">
+    <div class="card span-2">
+      <div class="card-head"><h2>Traffic over time</h2><span class="muted small" id="tl-unit"></span></div>
+      <div class="chart chart-wide"><canvas id="chart-timeline" aria-label="Allowed and denied events over time" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Alerts by rule</h2></div>
+      <div class="chart"><canvas id="chart-rules" aria-label="Alerts by detection rule" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Top source IPs</h2></div>
+      <div class="chart"><canvas id="chart-sources" aria-label="Top source IP addresses" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Top destination ports</h2></div>
+      <div class="chart"><canvas id="chart-ports" aria-label="Top destination ports" role="img"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Recent alerts</h2><a class="small" href="{{ url_for('alerts.index') }}">View all &rarr;</a></div>
+      {% if recent %}
+      <table class="table compact">
+        <tbody>
+        {% for a in recent %}
+          <tr>
+            <td>{{ sev(a.severity) }}</td>
+            <td><a href="{{ url_for('alerts.detail', alert_id=a.id) }}">{{ a.rule_name }}</a><br><code class="muted">{{ a.src_ip }}</code></td>
+            <td class="muted small nowrap">{{ a.last_seen|dt('%m-%d %H:%M') }}</td>
+            <td>{{ status_badge(a.status) }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<p class="muted">No alerts in this scope.</p>{% endif %}
+    </div>
+  </section>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{# Chart.js is bundled with the app (not loaded from the internet), so charts work offline in the lab #}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

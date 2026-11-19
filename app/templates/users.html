@@ -1,0 +1,54 @@
+{#
+User management (admin only): change role, reset password, disable or delete users,
+and add new users. Your own row has no role/disable/delete controls, so an admin
+cannot lock themselves out by mistake.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Users{% endblock %}
+{% block subheading %}<p class="muted">Admins manage rules, settings, users and live monitoring. Analysts view data, triage alerts and create reports.</p>{% endblock %}
+{% block content %}
+<section class="card table-card">
+  <table class="table">
+    <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><strong>{{ u.username }}</strong>{% if u.id == current_user.id %} <span class="muted small">(you)</span>{% endif %}</td>
+        <td>
+          {% if u.id != current_user.id %}
+          <form method="post" action="{{ url_for('admin.user_update', user_id=u.id) }}" class="inline">{{ csrf() }}
+            <input type="hidden" name="action" value="role">
+            <select name="role" aria-label="Role for {{ u.username }}">{% for r in roles %}<option {{ 'selected' if u.role == r }}>{{ r }}</option>{% endfor %}</select>
+            <button class="btn btn-ghost btn-sm">Set</button>
+          </form>
+          {% else %}{{ u.role }}{% endif %}
+        </td>
+        <td>{{ 'active' if u.active else 'disabled' }}</td>
+        <td class="muted small">{{ u.last_login|dt }}</td>
+        <td class="actions">
+          <form method="post" action="{{ url_for('admin.user_update', user_id=u.id) }}" class="inline">{{ csrf() }}
+            <input type="hidden" name="action" value="password">
+            <input type="password" name="password" placeholder="new password" aria-label="New password for {{ u.username }}" required minlength="10">
+            <button class="btn btn-ghost btn-sm">Reset</button>
+          </form>
+          {% if u.id != current_user.id %}
+          <form method="post" action="{{ url_for('admin.user_update', user_id=u.id) }}" class="inline">{{ csrf() }}
+            <button class="btn btn-ghost btn-sm" name="action" value="disable">{{ 'Disable' if u.active else 'Enable' }}</button>
+            <button class="btn btn-danger btn-sm" name="action" value="delete">Delete</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+<form class="card inline-form" method="post">{{ csrf() }}
+  <h2 class="full">Add user</h2>
+  <label>Username<input name="username" required maxlength="64"></label>
+  <label>Password<input name="password" type="password" required minlength="10"></label>
+  <label>Role<select name="role">{% for r in roles %}<option {{ 'selected' if r == 'analyst' }}>{{ r }}</option>{% endfor %}</select></label>
+  <button class="btn btn-primary btn-sm" type="submit">Create</button>
+</form>
+{% endblock %}

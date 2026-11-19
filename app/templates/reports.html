@@ -1,0 +1,61 @@
+{#
+Reports: choose a scope (time range and/or run), see summary figures, download the
+PDF or CSV files, and optionally generate a plain-language summary with a local Ollama model.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Reports{% endblock %}
+{% block subheading %}<p class="muted">Scope: {{ stats.scope }}</p>{% endblock %}
+{% block actions %}
+<form class="inline-filters" method="get">
+  <select name="range" aria-label="Time range">
+    {% for r in ranges %}<option value="{{ r }}" {{ 'selected' if scope.range_key == r }}>{{ 'All time' if r == 'all' else 'Last ' ~ r }}</option>{% endfor %}
+  </select>
+  <select name="run" aria-label="Analysis run"><option value="">All runs</option>
+    {% for r in runs %}<option value="{{ r.id }}" {{ 'selected' if scope.run_id == r.id }}>#{{ r.id }} {{ r.source }} &middot; {{ (r.filename or '')[:28] }}</option>{% endfor %}
+  </select>
+  <button class="btn btn-sm" type="submit">Apply</button>
+</form>
+{% endblock %}
+{% block content %}
+<section class="kpis">
+  <div class="kpi"><span>Events</span><strong>{{ stats.events.total|num }}</strong><small>{{ stats.events.unique_sources|num }} sources</small></div>
+  <div class="kpi"><span>Denied</span><strong class="bad">{{ stats.events.denied|num }}</strong><small>{{ stats.events.deny_ratio }}%</small></div>
+  <div class="kpi"><span>Alerts</span><strong>{{ stats.alerts.total|num }}</strong><small>{{ stats.alerts.open|num }} open</small></div>
+  <div class="kpi"><span>High + critical</span><strong class="bad">{{ stats.alerts.by_severity.high + stats.alerts.by_severity.critical }}</strong><small>alerts</small></div>
+</section>
+<section class="grid-2">
+  <div class="card stack">
+    <h2>Export</h2>
+    <a class="btn btn-primary" href="{{ url_for('reports.pdf', **args) }}">Download PDF report</a>
+    {% if summary %}<a class="btn" href="{{ url_for('reports.pdf', ai=1, **args) }}">Download PDF with AI summary</a>{% endif %}
+    <a class="btn" href="{{ url_for('reports.alerts_export', **args) }}">Alerts (CSV)</a>
+    <a class="btn" href="{{ url_for('events.export', run=args.get('run', '')) }}">Events (CSV)</a>
+    <p class="muted small">The PDF contains summary figures, alerts by rule, top sources and ports, and the alert list for the selected scope. CSV values are protected against spreadsheet formula injection.</p>
+  </div>
+  <div class="card stack">
+    <h2>AI summary <span class="muted small">optional</span></h2>
+    {% if summary %}
+      <p class="muted small">Generated {{ summary.generated_at }} by {{ summary.generated_by }} with <code>{{ summary.model }}</code>. AI-generated: verify against the data before acting.</p>
+      <div class="ai-text">{{ summary.text }}</div>
+    {% endif %}
+    {% if ollama_model %}
+    <form method="post" action="{{ url_for('reports.ai_summary') }}">{{ csrf() }}
+      <input type="hidden" name="range" value="{{ scope.range_key }}">
+      <input type="hidden" name="run" value="{{ scope.run_id or '' }}">
+      <button class="btn" type="submit">{{ 'Regenerate' if summary else 'Generate' }} summary with {{ ollama_model }}</button>
+    </form>
+    <p class="muted small">Local models can take a minute to respond.</p>
+    {% else %}
+    <p class="muted small">No Ollama model selected.{% if current_user.is_admin %} Choose one under <a href="{{ url_for('admin.settings') }}#ollama">Settings</a>.{% endif %}</p>
+    {% endif %}
+  </div>
+</section>
+<section class="grid-2">
+  <div class="card table-card"><div class="card-head"><h2>Alerts by rule</h2></div>
+    <table class="table compact"><tbody>{% for r in stats.alerts.by_rule %}<tr><td>{{ r.rule }}</td><td class="num">{{ r.count }}</td></tr>{% else %}<tr><td class="muted">No alerts</td></tr>{% endfor %}</tbody></table></div>
+  <div class="card table-card"><div class="card-head"><h2>Top sources</h2></div>
+    <table class="table compact mono"><thead><tr><th>IP</th><th class="num">Events</th><th class="num">Denied</th></tr></thead>
+    <tbody>{% for r in stats.top_sources %}<tr><td>{{ r.ip }}</td><td class="num">{{ r.count|num }}</td><td class="num">{{ r.denied|num }}</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

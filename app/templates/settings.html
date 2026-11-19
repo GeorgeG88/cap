@@ -1,0 +1,71 @@
+{#
+Admin settings, split into four forms. Each form has a hidden "section" field
+so the server knows which group of settings to save.
+The "configured / not configured" badges show whether .env has the credentials; the
+credentials themselves are never shown in the page.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<section class="grid-2">
+  <form class="card stack" id="notifications" method="post">{{ csrf() }}
+    <input type="hidden" name="section" value="notifications">
+    <h2>Notifications</h2>
+    <p class="muted small">Bot tokens and SMTP passwords are read from the <code>.env</code> file, never stored in the database.</p>
+    <div class="channel">
+      <label class="check"><input type="checkbox" name="telegram_enabled" value="1" {{ 'checked' if s.telegram_enabled }}> Telegram</label>
+      <span class="badge {{ 'st-resolved' if telegram_configured else 'sev-medium' }}">{{ 'configured' if telegram_configured else 'not configured in .env' }}</span>
+    </div>
+    <div class="channel">
+      <label class="check"><input type="checkbox" name="email_enabled" value="1" {{ 'checked' if s.email_enabled }}> Email (SMTP)</label>
+      <span class="badge {{ 'st-resolved' if email_configured else 'sev-medium' }}">{{ 'configured' if email_configured else 'not configured in .env' }}</span>
+    </div>
+    <label>Minimum severity to notify<select name="notify_min_severity">
+      {% for sv in severities %}<option value="{{ sv }}" {{ 'selected' if s.notify_min_severity == sv }}>{{ sv }}</option>{% endfor %}</select></label>
+    <label>Cooldown per rule and source (minutes)<input type="number" name="notify_cooldown_minutes" min="0" max="1440" value="{{ s.notify_cooldown_minutes }}"></label>
+    <p class="muted small">After a notification, the same rule and source stay quiet for the cooldown period (alerts still update on the dashboard). Escalations to a higher severity always notify.</p>
+    <div class="btn-row"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+
+  <div class="card stack">
+    <h2>Test delivery</h2>
+    <p class="muted small">Sends a test message immediately using the credentials in <code>.env</code>.</p>
+    <form method="post" action="{{ url_for('admin.settings_test', channel='telegram') }}">{{ csrf() }}<button class="btn" type="submit">Send Telegram test</button></form>
+    <form method="post" action="{{ url_for('admin.settings_test', channel='email') }}">{{ csrf() }}<button class="btn" type="submit">Send email test</button></form>
+
+    <form class="stack" id="alerts" method="post">{{ csrf() }}
+      <input type="hidden" name="section" value="alerts">
+      <h2>Alert handling</h2>
+      <label>Merge window (minutes)<input type="number" name="alert_merge_minutes" min="0" max="1440" value="{{ s.alert_merge_minutes }}"></label>
+      <p class="muted small">A new detection for the same rule and source that starts within this window of an open alert updates that alert instead of creating a new one.</p>
+      <div class="btn-row"><button class="btn btn-primary" type="submit">Save</button></div>
+    </form>
+  </div>
+
+  <form class="card stack" id="noise" method="post">{{ csrf() }}
+    <input type="hidden" name="section" value="noise">
+    <h2>Noise filtering</h2>
+    <label class="check"><input type="checkbox" name="drop_broadcast" value="1" {{ 'checked' if s.drop_broadcast }}> Drop broadcast traffic (255.255.255.255 and x.x.x.255)</label>
+    <label class="check"><input type="checkbox" name="drop_multicast" value="1" {{ 'checked' if s.drop_multicast }}> Drop multicast traffic (224.0.0.0/4, ff00::/8, IGMP)</label>
+    <label>Ignored UDP destination ports<input name="noise_ports" value="{{ s.noise_ports }}"></label>
+    <p class="muted small">Defaults: DHCP 67/68, NetBIOS 137/138, SSDP 1900, mDNS 5353, LLMNR 5355. Dropped events are counted on the run page but not stored.</p>
+    <div class="btn-row"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+
+  <form class="card stack" id="ollama" method="post">{{ csrf() }}
+    <input type="hidden" name="section" value="ollama">
+    <h2>AI report summary (optional)</h2>
+    <p class="muted small">Uses a local Ollama model to write a plain-language summary on the Reports page. Detection never depends on it, and it only receives aggregated statistics.</p>
+    <label>Ollama URL<input name="ollama_url" value="{{ s.ollama_url }}" maxlength="200"></label>
+    {% if ollama_error %}<div class="flash flash-warning">{{ ollama_error }}</div>{% endif %}
+    <label>Model
+      {% if ollama_models %}
+      <select name="ollama_model"><option value="">(disabled)</option>
+        {% for m in ollama_models %}<option {{ 'selected' if s.ollama_model == m }}>{{ m }}</option>{% endfor %}</select>
+      {% else %}<input name="ollama_model" value="{{ s.ollama_model }}" placeholder="e.g. gemma3:4b">{% endif %}
+    </label>
+    <div class="btn-row"><button class="btn btn-primary" type="submit">Save</button></div>
+  </form>
+</section>
+{% endblock %}

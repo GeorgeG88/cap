@@ -1,0 +1,53 @@
+{#
+One analysis run: counters, time span and the alerts it produced.
+While an upload is still being analysed, a <meta refresh> tag reloads the page every
+3 seconds; it stops once the status is done or failed.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import sev, status_badge, csrf %}
+{% block head %}{% if run.status in ('queued', 'running') and run.source == 'upload' %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block title %}Run #{{ run.id }}{% endblock %}
+{% block subheading %}<p class="muted">{{ run.source|capitalize }} &middot; {{ run.filename or '' }} &middot; <span class="badge run-{{ run.status }}">{{ run.status }}</span>
+  {% if run.status in ('queued', 'running') and run.source == 'upload' %}&middot; refreshing automatically{% endif %}</p>{% endblock %}
+{% block actions %}
+<a class="btn btn-sm" href="{{ url_for('dashboard.index', run=run.id) }}">Dashboard</a>
+<a class="btn btn-sm" href="{{ url_for('events.index', run=run.id) }}">Events</a>
+<a class="btn btn-sm" href="{{ url_for('reports.index', run=run.id) }}">Report</a>
+{% if current_user.is_admin and run.status not in ('queued', 'running') %}
+<form method="post" action="{{ url_for('analysis.run_delete', run_id=run.id) }}" class="inline">{{ csrf() }}
+  <button class="btn btn-sm btn-danger" type="submit">Delete run</button></form>
+{% endif %}
+{% endblock %}
+{% block content %}
+{% if run.error %}<div class="flash flash-danger">{{ run.error }}</div>{% endif %}
+<section class="kpis">
+  <div class="kpi"><span>Lines read</span><strong>{{ run.lines_total|num }}</strong><small>{{ run.lines_not_ufw|num }} not firewall entries</small></div>
+  <div class="kpi"><span>Parsed</span><strong>{{ run.lines_parsed|num }}</strong><small class="{{ 'bad' if run.lines_malformed }}">{{ run.lines_malformed|num }} malformed</small></div>
+  <div class="kpi"><span>Stored events</span><strong>{{ run.events_stored|num }}</strong><small>{{ run.events_noise|num }} noise dropped</small></div>
+  <div class="kpi"><span>Allowlisted</span><strong>{{ run.events_allowlisted|num }}</strong><small>excluded from detection</small></div>
+  <div class="kpi"><span>Alerts</span><strong class="{{ 'bad' if run.alerts_created }}">{{ run.alerts_created|num }}</strong>
+    <small>{% if run.duration_seconds is not none %}{{ '%.1f'|format(run.duration_seconds) }} s processing{% else %}&nbsp;{% endif %}</small></div>
+</section>
+<section class="card">
+  <dl class="kv kv-inline">
+    <dt>Log period</dt><dd>{{ run.first_event|dt }} &rarr; {{ run.last_event|dt }}</dd>
+    <dt>Started</dt><dd>{{ run.started_at|dt }} by {{ run.created_by or 'system' }}</dd>
+    <dt>Finished</dt><dd>{{ run.finished_at|dt }}</dd>
+    <dt>Notifications</dt><dd>{{ 'enabled' if run.notify else 'disabled' }}</dd>
+  </dl>
+</section>
+<section class="card table-card">
+  <div class="card-head"><h2>Alerts from this run</h2></div>
+  {% if alerts %}
+  <table class="table">
+    <thead><tr><th>Severity</th><th>Alert</th><th>Source</th><th>First seen</th><th class="num">Count</th><th>Status</th></tr></thead>
+    <tbody>{% for a in alerts %}
+      <tr><td>{{ sev(a.severity) }}</td>
+        <td><a href="{{ url_for('alerts.detail', alert_id=a.id) }}">#{{ a.id }} {{ a.rule_name }}</a><div class="muted small">{{ (a.details or {}).get('summary', '') }}</div></td>
+        <td><code>{{ a.src_ip }}</code></td><td class="nowrap">{{ a.first_seen|dt }}</td>
+        <td class="num">{{ a.event_count|num }}</td><td>{{ status_badge(a.status) }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% else %}<p class="empty-row">{{ 'Analysis in progress...' if run.status in ('queued', 'running') else 'No alerts were raised for this run.' }}</p>{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,17 @@
+{#
+Change your own password. The current password is required.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Account{% endblock %}
+{% block subheading %}<p class="muted">Signed in as <strong>{{ current_user.username }}</strong> ({{ current_user.role }}).</p>{% endblock %}
+{% block content %}
+<form class="card stack narrow" method="post">{{ csrf() }}
+  <h2>Change password</h2>
+  <label>Current password<input type="password" name="current_password" required></label>
+  <label>New password<input type="password" name="new_password" required minlength="10"></label>
+  <label>Confirm new password<input type="password" name="confirm_password" required minlength="10"></label>
+  <p class="muted small">At least 10 characters, mixing letters with digits or symbols.</p>
+  <div><button class="btn btn-primary" type="submit">Update password</button></div>
+</form>
+{% endblock %}

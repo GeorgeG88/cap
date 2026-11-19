@@ -1,0 +1,52 @@
+{#
+Event explorer: filter form, then the matching events, newest first.
+Each event has a collapsible "raw line" row showing the original log text.
+Clicking an IP or port applies it as a filter.
+-#}
+{% extends "base.html" %}
+{% from "_macros.html" import action_badge, pager %}
+{% block title %}Events{% endblock %}
+{% block subheading %}<p class="muted">Every parsed firewall log entry (noise filtered out). Allowlisted sources are marked.</p>{% endblock %}
+{% block actions %}<a class="btn btn-sm" href="{{ url_for('events.export', **args) }}">Export CSV</a>{% endblock %}
+{% block content %}
+<form class="filters card" method="get">
+  <label>Source IP<input name="src" value="{{ args.get('src', '') }}" maxlength="45" placeholder="prefix"></label>
+  <label>Destination IP<input name="dst" value="{{ args.get('dst', '') }}" maxlength="45" placeholder="prefix"></label>
+  <label>Dest. port<input name="port" type="number" min="0" max="65535" value="{{ args.get('port', '') }}"></label>
+  <label>Action<select name="action"><option value="">Any</option>
+    {% for a in ('ALLOW', 'DENY', 'AUDIT') %}<option {{ 'selected' if args.get('action') == a }}>{{ a }}</option>{% endfor %}</select></label>
+  <label>Protocol<select name="proto"><option value="">Any</option>
+    {% for p in ('TCP', 'UDP', 'ICMP', 'ICMPV6') %}<option {{ 'selected' if args.get('proto') == p }}>{{ p }}</option>{% endfor %}</select></label>
+  <label>Run<select name="run"><option value="">Any</option>
+    {% for r in runs %}<option value="{{ r.id }}" {{ 'selected' if args.get('run') == r.id|string }}>#{{ r.id }} {{ r.source }}</option>{% endfor %}</select></label>
+  <label>From<input name="start" type="datetime-local" value="{{ args.get('start', '') }}"></label>
+  <label>To<input name="end" type="datetime-local" value="{{ args.get('end', '') }}"></label>
+  <div class="filter-actions"><button class="btn btn-sm" type="submit">Filter</button>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('events.index') }}">Reset</a></div>
+</form>
+
+<section class="card table-card">
+  {% if pagination.items %}
+  <table class="table compact mono">
+    <thead><tr><th>Time</th><th>Action</th><th>Source</th><th>Destination</th><th>Proto</th><th>Flags</th><th>Iface</th><th>Run</th></tr></thead>
+    <tbody>
+    {% for e in pagination.items %}
+      <tr>
+        <td class="nowrap">{{ e.timestamp|dt }}</td>
+        <td>{{ action_badge(e.action) }}{% if e.allowlisted %} <span class="badge st-acknowledged" title="Allowlisted source, excluded from detection">AL</span>{% endif %}</td>
+        <td><a href="{{ url_for('events.index', src=e.src_ip) }}">{{ e.src_ip }}</a>{% if e.src_port is not none %}<span class="muted">:{{ e.src_port }}</span>{% endif %}</td>
+        <td>{{ e.dst_ip }}{% if e.dst_port is not none %}<span class="muted">:</span><a href="{{ url_for('events.index', port=e.dst_port) }}">{{ e.dst_port }}</a>{% endif %}</td>
+        <td>{{ e.proto }}</td>
+        <td>{{ e.flags or '' }}</td>
+        <td class="muted">{{ e.iface_in or e.iface_out }}</td>
+        <td>{% if e.run_id %}<a href="{{ url_for('analysis.run_detail', run_id=e.run_id) }}">#{{ e.run_id }}</a>{% endif %}</td>
+      </tr>
+      {# The raw line comes from the network and could contain HTML; Jinja escapes it, so it is shown as plain text #}
+      <tr class="raw-row"><td colspan="8"><details><summary>raw line</summary><code class="raw">{{ e.raw }}</code></details></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="empty-row">No events match these filters.</p>{% endif %}
+</section>
+{{ pager(pagination, 'events.index', args) }}
+{% endblock %}
